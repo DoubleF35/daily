@@ -1,0 +1,37 @@
+name: daily
+
+on:
+  schedule:
+    # 04:00 UTC = 06:00 ora italiana (05:00 quando vale l'ora solare)
+    - cron: '0 4 * * *'
+  # permette di lanciarlo a mano dalla tab Actions
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  append-date:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Append today's date to README
+        run: |
+          set -euo pipefail
+
+          TODAY="$(TZ=Europe/Rome date +'%Y-%m-%d')"
+
+          # idempotente: se la riga di oggi c'e' gia', non fa nulla
+          if grep -qxF "- $TODAY" README.md; then
+            echo "Riga per $TODAY gia' presente, niente da fare."
+            exit 0
+          fi
+
+          printf -- '- %s\n' "$TODAY" >> README.md
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md
+          git commit -m "daily: $TODAY"
+          git push
