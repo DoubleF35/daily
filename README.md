@@ -27,3 +27,4 @@ alle 06:00 ora italiana. Gira sui server di GitHub: non serve avere PC o telefon
 - 2026-09-22
 - 2026-09-23
 - 2026-09-24
+- 2026-09-25
