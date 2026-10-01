@@ -33,3 +33,4 @@ alle 06:00 ora italiana. Gira sui server di GitHub: non serve avere PC o telefon
 - 2026-09-28
 - 2026-09-29
 - 2026-09-30
+- 2026-10-01
