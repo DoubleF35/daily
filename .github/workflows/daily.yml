@@ -2,36 +2,91 @@ name: daily
 
 on:
   schedule:
-    # 04:00 UTC = 06:00 ora italiana (05:00 quando vale l'ora solare)
-    - cron: '0 4 * * *'
-  # permette di lanciarlo a mano dalla tab Actions
+    # Orari UTC sparsi lungo la giornata italiana. I minuti non sono tondi
+    # apposta: uno scheduler che parte sempre a :00 si riconosce a occhio.
+    # In ora legale sono 08:12 / 10:47 / 13:23 / 16:05 / 18:38 / 21:14 a Roma,
+    # un'ora prima in ora solare: resta comunque tutto in orario di veglia.
+    - cron: '12 6 * * *'
+    - cron: '47 8 * * *'
+    - cron: '23 11 * * *'
+    - cron: '5 14 * * *'
+    - cron: '38 16 * * *'
+    - cron: '14 19 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# Due run non devono committare insieme: al secondo il push verrebbe respinto.
+concurrency:
+  group: daily-entry
+  cancel-in-progress: false
+
 jobs:
-  append-date:
+  entry:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Append today's date to README
+      - name: Decidi se committare in questo slot
+        id: roll
         run: |
           set -euo pipefail
 
           TODAY="$(TZ=Europe/Rome date +'%Y-%m-%d')"
 
-          # idempotente: se la riga di oggi c'e' gia', non fa nulla
-          if grep -qxF "- $TODAY" README.md; then
-            echo "Riga per $TODAY gia' presente, niente da fare."
+          # La prima voce del giorno viene scritta sempre, cosi' la streak non
+          # si rompe mai. Il criterio e' "oggi non c'e' ancora nulla" invece di
+          # "e' il primo slot": si auto-corregge se un run fallisce o se
+          # GitHub accoda lo slot delle 6 cosi' tardi da farlo scivolare.
+          if ! grep -q "^- $TODAY" README.md; then
+            echo "prima voce di $TODAY: committo"
+            echo "go=yes" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          printf -- '- %s\n' "$TODAY" >> README.md
+          # Lanciato a mano: e' una scelta esplicita, si committa.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
+          # Gli slot successivi tirano un dado. Nel weekend meno spesso.
+          dow="$(TZ=Europe/Rome date +%u)"
+          if [ "$dow" -ge 6 ]; then chance=30; else chance=50; fi
+
+          if [ $((RANDOM % 100)) -lt "$chance" ]; then
+            echo "dado passato ($chance%): committo"
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "dado fallito ($chance%): slot saltato"
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Aspetta un po', a caso
+        if: steps.roll.outputs.go == 'yes'
+        # Senza questo i commit cadono allo stesso minuto tutti i giorni.
+        # GitHub aggiunge gia' un suo ritardo di coda, questo lo allarga.
+        run: sleep $(( RANDOM % 1500 ))
+
+      - name: Aggiungi la voce e committa
+        if: steps.roll.outputs.go == 'yes'
+        run: |
+          set -euo pipefail
+
+          STAMP="$(TZ=Europe/Rome date +'%Y-%m-%d %H:%M')"
+          printf -- '- %s\n' "$STAMP" >> README.md
+
+          MSGS=("daily: $STAMP" "log: $STAMP" "entry: $STAMP" "update log" "nuova voce")
+          MSG="${MSGS[$(( RANDOM % ${#MSGS[@]} ))]}"
+
+          # Email associata all'account, altrimenti il commit non conta nel
+          # contribution graph. L'alias noreply non espone l'indirizzo vero.
           git config user.name  'DoubleF35'
           git config user.email '256942734+DoubleF35@users.noreply.github.com'
           git add README.md
-          git commit -m "daily: $TODAY"
+          git commit -m "$MSG"
+
+          # Nel caso un dispatch manuale si sia incrociato con uno slot.
+          git pull --rebase --quiet
           git push
